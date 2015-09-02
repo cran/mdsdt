@@ -1,3 +1,8 @@
+#' @import ellipse mnormt polycor
+
+#' @importFrom graphics abline box lines mtext par plot points text title
+#' @importFrom stats coef constrOptim dnorm lm pchisq pnorm qnorm vcov xtabs
+
 # S3 grt object
 # 
 # Constructor for a grt fit object, containing information about estimated parameters and likelihoods
@@ -28,7 +33,7 @@ grt <- function (dists, fit=NULL, rcuts = 0, ccuts = 0) {
 #' 
 #' @param freq Can be entered in two ways: 1) a 4x4 confusion matrix containing counts, 
 #' with each row corresponding to a stimulus and each column corresponding to a response. 
-#' row/col order must be aa, ab, ba, bb. 
+#' row/col order must be a_1b_1, a_1b_2, a_2b_1, a_2b_2. 
 #' 2) A three-way 'xtabs' table with the stimuli as the third index and the 
 #' NxN possible responses as the first two indices.
 #' @param PS_x if TRUE, will fit model with assumption of perceptual separability on the x dimension
@@ -65,10 +70,7 @@ fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
   }
 }
 
-#' print.grt
-#' 
 #' Print the object returned by fit.grt
-#' @method print grt
 #' @param x An object returned by fit.grt 
 #' @param ... further arguments passed to or from other methods, as in the generic print function
 #' @export
@@ -80,11 +82,8 @@ print.grt <- function (x, ...) {
   invisible(x)
 }
 
-#' summary.grt
-#' 
 #' Summarize the object returned by fit.grt
-#' @method summary grt
-#' @param object An object retrned by fit.grt
+#' @param object An object returned by fit.grt
 #' @param ... additional arguments affecting the summary produced, as in the generic summary function
 #' @export
 summary.grt <- function(object, ...) {
@@ -112,7 +111,6 @@ summary.grt <- function(object, ...) {
 #' @param xlab optional label for the x axis (defaults to NULL)
 #' @param ylab optional label for the y axis (defaults to NULL)
 #' @param ... Arguments to be passed to methods, as in generic plot function
-#' @method plot grt
 #' @export
 plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim.sc added 1.24.14
 #                     connect=NULL, names=NULL, clty=1,ccol='Black',llty=1,lcol='Black', ...) {
@@ -162,7 +160,9 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
   }
 }
 
-#' Tests report independence for each stimulus response distribution
+#' Test report independence 
+#' 
+#' Test report independence for each stimulus response distribution
 #'
 #' @param x four-by-four confusion matrix 
 #' @return data frame containing z-scores and p-values for all four tests
@@ -196,6 +196,8 @@ riTest <- function(x) {
                     p.value=round(1-pchisq(statistic, 1),3)))
 }
 
+#' Test marginal response invariance
+#' 
 #' Tests marginal response invariance at both levels on each dimension
 #'
 #' @param x four-by-four confusion matrix 
@@ -250,7 +252,6 @@ mriTest <- function(x) {
 }
 
 
-#' @export
 two_by_two_fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
   if(!checkConfusionMatrix(freq)) return(FALSE); # Make sure confusion matrix valid
   delta <- 1/10000; # Tolerance
@@ -368,7 +369,6 @@ two_by_two_fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
 
 
 
-#' @export
 two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
   bin_width= .05; # determines smoothness of marginal plots
   ex = .25 # determines relative size of main plot and marginal plots
@@ -409,10 +409,25 @@ two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
   
   # Add labels inset at 10% of the total x and y range
   labs = dimnames(obj$fit$obs)$Stim
-  text(xlims[1]+(xra * .1), ylims[1]+(yra * .1), labs[1])
-  text(xlims[1]+(xra * .1), ylims[2]-(yra * .1), labs[2])
-  text(xlims[2]-(xra * .1), ylims[1]+(yra * .1), labs[3])
-  text(xlims[2]-(xra * .1), ylims[2]-(yra * .1), labs[4])
+
+  # If we're using the default, we need to get subscripts in there...
+  newLabs <- vector("expression", 4)
+  if(isDefaultLabel(labs)) {
+    for(i in 1:4){
+      first = strsplit(substring(labs[i], 0, 3), "_")[[1]];
+      second = strsplit(substring(labs[i], 4, 6), "_")[[1]];
+      firstIndex = as.numeric(first[2]);
+      secondIndex = as.numeric(second[2]);
+      exp = eval(bquote(expression(.(first[1])[.(firstIndex)]~.(second[1])[.(secondIndex)])))
+      newLabs[i] = exp;
+    }
+  } else {
+    newLabs = labs;
+  }
+  text(xlims[1]+(xra * .1), ylims[1]+(yra * .1), newLabs[1])
+  text(xlims[1]+(xra * .1), ylims[2]-(yra * .1), newLabs[2])
+  text(xlims[2]-(xra * .1), ylims[1]+(yra * .1), newLabs[3])
+  text(xlims[2]-(xra * .1), ylims[2]-(yra * .1), newLabs[4])
   
   # compute marginals
   margx = margy = list(aa=NULL,ab=NULL,ba=NULL, bb=NULL);
@@ -440,12 +455,18 @@ two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
   par(mar = old_mar, fig = c(0,1,0,1));
 }
 
+isDefaultLabel <- function(label) {
+  return(label[1] == "a_1b_1" 
+         & label[2] == "a_1b_2" 
+         & label[3] == "a_2b_1" 
+         & label[4] == "a_2b_2")
+}
 
-#' Goodness of fit tests
+#' Conduct goodness of fit tests
 #' 
-#' Includes a number of common goodness of fit measures to compare different models.
+#' Includes a number of common goodness of fit measures to compare different GRT models.
 #' 
-#' @param bb a \code{grt} object
+#' @param grtMod a \code{grt} object
 #' @param teststat a string indicating which statistic to use in the test. 
 #' May be one of the following:
 #' \itemize{
@@ -464,10 +485,10 @@ two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
 #' GOF(fit1, teststat = 'AIC')
 #' GOF(fit2, teststat = 'AIC')
 #' @export
-GOF <- function(bb,teststat='X2',observed=NULL){
-  if (!identical(class(bb),'grt'))
+GOF <- function(grtMod,teststat='X2',observed=NULL){
+  if (!identical(class(grtMod),'grt'))
     stop('Argument must be object of class "grt"')
-  if (is.null(ff <- bb$fit) && is.null(observed))
+  if (is.null(ff <- grtMod$fit) && is.null(observed))
     stop('Must have fitted model, observed frequencies, or both')
   # added AIC, AICc, BIC 1.27.14
   statlist <- c('X2','G2','AIC','AIC.c','BIC')
@@ -483,40 +504,44 @@ GOF <- function(bb,teststat='X2',observed=NULL){
     nk <- apply(observed,3,sum)
     ex <- array(dim=dim(observed))
     for (k in 1:dim(observed)[3])
-      ex[,,k] <- bsd.freq(bb$rowcuts,bb$colcuts,bb$dists[k,],nk[k])
+      ex[,,k] <- bsd.freq(grtMod$rowcuts,grtMod$colcuts,grtMod$dists[k,],nk[k])
   }
   df <- length(observed) - dim(observed)[3] - df
   if (test == 1){
+    if(df == 0) {
+      warning("degrees of freedom = 0, so the resulting statistic is uninterpretable. Try using AIC or BIC instead.")
+    }
     tstat <- sum((observed-ex)^2/ex)}
   if (test == 2){
     ex <- ex[observed>0]; observed <- observed[observed>0]
     tstat <- 2*sum(observed*log(observed/ex))
   }
   if (test == 3){
-    map = bb$fit$map
+    map = grtMod$fit$map
     k = 0
     for(i in 1:ncol(map)){
       k = k + sum(unique(map[,i])>0)
     }
-    tstat <- 2*bb$fit$loglik + 2*k
+    tstat <- 2*grtMod$fit$loglik + 2*k
   }
   if (test == 4){
-    map = bb$fit$map
+    map = grtMod$fit$map
     k = 0
     for(i in 1:ncol(map)){
       k = k + sum(unique(map[,i])>0)
     }
     n <- sum(observed)
-    tstat <- 2*bb$fit$loglik + (2*k*(k+1))/(n-k-1)
+    aicStat <- 2*grtMod$fit$loglik + 2*k
+    tstat <- aicStat + (2*k*(k+1))/(n-k-1)
   }
   if (test == 5){
-    map = bb$fit$map
+    map = grtMod$fit$map
     k = 0
     for(i in 1:ncol(map)){
       k = k + sum(unique(map[,i])>0)
     }
     n <- sum(observed)
-    tstat <- 2*bb$fit$loglik + log(n)*k  }
+    tstat <- 2*grtMod$fit$loglik + log(n)*k  }
   if (test < 3){
     structure(tstat,names=teststat,df=df,class='bsdGOF')    
   }else{
@@ -577,16 +602,16 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
       #print(pold)
       #print(pmap)
       #print(imap)
-      bb <- bsd.llike(pold,xx,pmap,imap,d.level=2,...)
-      #print(attr(bb,'ExpD2'))
-      #print(attr(bb,'gradient'))
-      dlt <- solve(attr(bb,'ExpD2'),attr(bb,'gradient'))
+      grtMod <- bsd.llike(pold,xx,pmap,imap,d.level=2,...)
+      #print(attr(grtMod,'ExpD2'))
+      #print(attr(grtMod,'gradient'))
+      dlt <- solve(attr(grtMod,'ExpD2'),attr(grtMod,'gradient'))
       if (trace){
         cat('Iteration number',iter,'\n')
         cat('Row cutpoints', round(pold[imap$xi],4),'\n')
         cat('Col cutpoints', round(pold[imap$eta],4),'\n')
         print(round(bsd.map2array(pold,pmap,imap),4))
-        cat('Value',bb[1],'\n')
+        cat('Value',grtMod[1],'\n')
       }
       s <- stepsize
       repeat{
@@ -648,7 +673,7 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
     pp <- ffit$par
     code <- ffit$convergence
     iterations <- ffit$counts
-    bb <- bsd.llike(pp,xx,pmap,imap,d.level=2)
+    grtMod <- bsd.llike(pp,xx,pmap,imap,d.level=2)
     found <- code < 4
   }
   if (!found) warning('Minimization routine encountered difficultites',
@@ -662,8 +687,8 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
   muh <- array(dim=dim(xx),dimnames=dimnames(xx))
   for (k in 1:KK) muh[,,k] <- bsd.freq(xi,eta,dists[k,],nk[k])
   fit <- list(obs=xx,fitted=muh,estimate=pp,
-              expd2=attr(bb,'ExpD2'),map=pmap,
-              loglik=bb[1],code=code,iter=iterations)
+              expd2=attr(grtMod,'ExpD2'),map=pmap,
+              loglik=grtMod[1],code=code,iter=iterations)
   if (verbose) {
     if (found) cat('\nConvergence required',iterations,'iterations\n\n')
     else cat (iterations, 'iterations used without reaching convergence\n\n')
@@ -671,7 +696,7 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
     cat('Row cutpoints', round(xi,4),'\n')
     cat('Col cutpoints', round(eta,4),'\n')
     print(round(dists,4))
-    cat('Log likelihood =',bb[1],'\n')
+    cat('Log likelihood =',grtMod[1],'\n')
   }
   #print(dists);
   output = grt(dists,fit=fit,rcuts = xi,ccuts = eta)
@@ -810,19 +835,30 @@ linear.hypothesis <- function(b,m,c=0,set='means'){
 }
 
 
-# Comparison of models
-anova.grt <- function(b1,b2){
-  g21 <- GOF(b1,teststat='G2')
+#' Compare nested GRT models
+#' 
+#' Conducts a likelihood-ratio G-test on nested GRT models. Currently only accepts pairs of nested models, not arbitrary sequences.
+#' 
+#' @param object A fitted GRT model returned by fit.grt
+#' @param ... A larger GRT model, with model1 nested inside
+#' @export
+anova.grt <- function(object, ...){
+  model1 <- object;
+  model2 <- list(...)[[1]];
+  g21 <- GOF(model1,teststat='G2')
   df1 <- attr(g21,'df')
-  g22 <- GOF(b2,teststat='G2')
+  g22 <- GOF(model2,teststat='G2')
   df2 <- attr(g22,'df')
-  # p.val added 1.24.14 -NHS
   DG2 <- round(g21-g22,3)
   ddf <- df1-df2
   p.val <- round(pchisq(DG2,ddf,lower.tail=F),4)
   table <- matrix(c(round(g21,3),round(g22,3),df1,df2,'',
                     DG2,'',ddf,'',p.val),2)
-  dimnames(table) <- list(c(substitute(b1),substitute(b2)),
+  # Want to get model var names passed in by user
+  arg <- deparse(substitute(object))
+  dots <- substitute(list(...))[-1]
+  modelNames <- c(arg, sapply(dots, deparse))
+  dimnames(table) <- list(modelNames,
                           c('G2', 'df', 'DG2', 'df','p-val'))
   as.table(table)
 }
@@ -1467,6 +1503,8 @@ create_two_by_two_mod <- function(PS_x, PS_y ,PI) {
   return(mod);
 }
 
+defaultNames <- c("a_1b_1", "a_1b_2", "a_2b_1", "a_2b_2")
+
 # In 2x2 case, it's typical to use a 4x4 frequency matrix w/ each row being a stim
 # and each col being the freqency of responding "aa", "ab", "ba", "bb", respectively, 
 # to that stim. Wickens' code for nxn case requires data in xtabs format.
@@ -1474,7 +1512,7 @@ freq2xtabs <- function(freq) {
   xdim = dim(freq)[1]; 
   ydim = dim(freq)[2];
   d = as.data.frame(matrix(rep(x=0,times=xdim*ydim*4), nrow = xdim*ydim, ncol = 4));
-  stimuli = if(length(rownames(freq)) > 0) rownames(freq) else c("aa", "ab", "ba", "bb")
+  stimuli = if(length(rownames(freq)) > 0) rownames(freq) else defaultNames; 
   names(d) <- c("Stim", "L1", "L2", "x");
   for (i in 1:4) {
     for (j in 1:4) {
