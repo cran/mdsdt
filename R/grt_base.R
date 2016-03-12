@@ -20,15 +20,16 @@
 #  rcuts: Optional cutpoints for the rows
 #  ccuts: Optional cutpoints for the columns
 grt <- function (dists, fit=NULL, rcuts = 0, ccuts = 0) {
-  if (is.null(colnames(dists)))
+  if (is.null(colnames(dists))) {
     colnames(dists) <- c('mu_r','sd_r','mu_c','sd_c','rho')
+  }
   structure(list(dists=dists,fit=fit, rowcuts=rcuts, colcuts=ccuts),
             class = 'grt')
 }
 
 #' Fit full Gaussian GRT model
 #' 
-#' Use Newton-Raphson gradient descent to fit the mean and covariance of a bivariate Gaussian distribution for each stimulus class, subject to given constraints. 
+#' Fit the mean and covariance of a bivariate Gaussian distribution for each stimulus class, subject to given constraints. 
 #' Standard case uses confusion matrix from a 2x2 full-report identification experiment, but will also work in designs with N levels of confidence associated with each dimension (e.g. in Wickens, 1992).
 #' 
 #' @param freq Can be entered in two ways: 1) a 4x4 confusion matrix containing counts, 
@@ -36,16 +37,18 @@ grt <- function (dists, fit=NULL, rcuts = 0, ccuts = 0) {
 #' row/col order must be a_1b_1, a_1b_2, a_2b_1, a_2b_2. 
 #' 2) A three-way 'xtabs' table with the stimuli as the third index and the 
 #' NxN possible responses as the first two indices.
-#' @param PS_x if TRUE, will fit model with assumption of perceptual separability on the x dimension
-#' @param PS_y if TRUE, will fit model with assumption of perceptual separability on the y dimension
+#' @param PS_x if TRUE, will fit model with assumption of perceptual separability on the x dimension (FALSE by default)
+#' @param PS_y if TRUE, will fit model with assumption of perceptual separability on the y dimension (FALSE by default)
 #' @param PI 'none' by default, imposing no restrictions and fitting different correlations for all distributions. 
 #' If 'same_rho', will constrain all distributions to have same correlation parameter. 
 #' If 'all', will constain all distribution to have 0 correlation. 
+#' @param method The optimization method used to fit the Gaussian model. Newton-Raphson gradient descent by default, but
+#' may also specify any method available in \code{\link[stats]{optim}}, e.g. "BFGS".
 #' @return An S3 \code{grt} object
 #' @examples 
 #' # Fit unconstrained model
-#' data(thomasB); 
-#' grt_obj <- fit.grt(thomasB);
+#' data(thomas01b); 
+#' grt_obj <- fit.grt(thomas01b);
 #' 
 #' # Use standard S3 generics to examine
 #' print(grt_obj);
@@ -53,7 +56,7 @@ grt <- function (dists, fit=NULL, rcuts = 0, ccuts = 0) {
 #' plot(grt_obj);
 #' 
 #' # Fit model with assumption of perceptual separability on both dimensions
-#' grt_obj_PS <- fit.grt(thomasB, PS_x = TRUE, PS_y = TRUE);
+#' grt_obj_PS <- fit.grt(thomas01b, PS_x = TRUE, PS_y = TRUE);
 #' summary(grt_obj_PS);
 #' plot(grt_obj_PS);
 #' 
@@ -61,12 +64,12 @@ grt <- function (dists, fit=NULL, rcuts = 0, ccuts = 0) {
 #' GOF(grt_obj, teststat = 'AIC');
 #' GOF(grt_obj_PS, teststat = 'AIC');
 #' @export
-fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
+fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none', method=NA) {
   if (length(freq) == 16) {
     return(two_by_two_fit.grt(freq, PS_x, PS_y, PI))
   } else {
-    n_by_nmap <- create_n_by_n_mod(PS_x, PS_y, PI);
-    return(n_by_n_fit.grt(freq, pmap=n_by_nmap))
+    n_by_nmap <- create_n_by_n_mod(freq,PS_x, PS_y, PI);
+    return(n_by_n_fit.grt(freq, pmap=n_by_nmap, method=method))
   }
 }
 
@@ -110,11 +113,15 @@ summary.grt <- function(object, ...) {
 #' @param level number between 0 and 1 indicating which contour to plot (defaults to .5)
 #' @param xlab optional label for the x axis (defaults to NULL)
 #' @param ylab optional label for the y axis (defaults to NULL)
+#' @param marginals Boolean indicating whether or not to plot marginals (only available for 2x2 model; defaults to FALSE)
+#' @param main string to use as title of plot (defaults to empty string)
+#' @param plot.mu Boolean indicating whether or not to plot means (defaults to T)
 #' @param ... Arguments to be passed to methods, as in generic plot function
 #' @export
-plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim.sc added 1.24.14
+plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, marginals=F, main = "", plot.mu=T,...) {
 #                     connect=NULL, names=NULL, clty=1,ccol='Black',llty=1,lcol='Black', ...) {
-  lim.sc=2;
+  origPar <- par(no.readonly=TRUE); 
+  lim.sc=1
   connect=NULL;
   names=NULL;
   clty=1;
@@ -122,11 +129,12 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
   llty=1;
   lcol='Black';
   if (length(x$fit$obs) == 16) {
-    two_by_two_plot.grt(x, xlab, ylab, level = level);
-  }
-  else {
+    two_by_two_plot.grt(x, xlab, ylab, level = level, 
+                        marginals=marginals, main = main, 
+                        plot.mu = plot.mu);
+  } else {
     #require(mvtnorm);
-    main=deparse(substitute(x))
+    #main=deparse(substitute(x))
     xc <- x$colcuts
     yc <- x$rowcuts
     dd <- x$dists
@@ -137,11 +145,13 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
     max.ax <- max(max(mx+lim.sc*sx),max(my+lim.sc*sy))
     X <- c(min.ax,max.ax)
     Y <- c(min.ax,max.ax)
-    if (is.null(xlab)) xlab <- if(is.null(x$fit)) 'Y' else
+    if (is.null(xlab)) xlab <- if(is.null(x$fit)) 'A' else
       names(dimnames(x$fit$obs)[2])
-    if (is.null(ylab)) ylab <- if(is.null(x$fit)) 'X' else
+    if (is.null(ylab)) ylab <- if(is.null(x$fit)) 'B' else
       names(dimnames(x$fit$obs)[1])
+    
     # axes=F, box(which="plot") added 1.24.14
+    par(fig=c(0,1,0,1),mar=c(2.5,2.5,2.5,2.5))
     plot(X,Y,type='n',main=main,xlab="",ylab="",axes=F,...)
     mtext(text=xlab,side=1,line=1)
     mtext(text=ylab,side=2,line=1)
@@ -151,6 +161,9 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
     for (i in 1:dim(dd)[1]) {
       v <- matrix(c(sx[i]^2,rep(sx[i]*sy[i]*rho[i],2),sy[i]^2),2)
       lines(ellipse(v,centre=c(mx[i],my[i]),level=level))
+      if(plot.mu){
+        points(mx[i],my[i],pch=3)
+      }
     } 
     if (!is.null(connect[1])) 
       lines(mx[c(connect,connect[1])],my[c(connect,connect[1])],
@@ -158,6 +171,8 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
     # names changed 1.24.14
     if (!is.null(names)) text(mx,my,names)
   }
+  # Restore user's original graphics params
+  par(origPar);
 }
 
 #' Test report independence 
@@ -168,8 +183,8 @@ plot.grt <- function(x, level = .5, xlab=NULL, ylab=NULL, ...) {#lim.sc=2, # lim
 #' @return data frame containing z-scores and p-values for all four tests
 #' @details If p value is sufficiently low, we're justified in rejecting the null hypothesis of sampling within that factor. p values come from a chi-squared test on the confusion matrix, as explaned in a footnote of Thomas (2001).
 #' @examples
-#' data(thomasA)
-#' riTest(thomasA)
+#' data(thomas01a)
+#' riTest(thomas01a)
 #' @source
 #' Ashby, F. G., & Townsend, J. T. (1986). Varieties of perceptual independence. Psychological review, 93(2), 154.
 #'
@@ -208,8 +223,8 @@ riTest <- function(x) {
 #' 
 #' The estimator is derived in a footnote of Thomas (2001).
 #' @examples
-#' data(thomasA)
-#' mriTest(thomasA)
+#' data(thomas01a)
+#' mriTest(thomas01a)
 #' @source
 #' Ashby, F. G., & Townsend, J. T. (1986). Varieties of perceptual independence. Psychological review, 93(2), 154.
 #'
@@ -358,7 +373,7 @@ two_by_two_fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
   bic = npar*log(sum(freq)) - 2*loglike;
   icomp = -loglike + (npar/2)*log(tr(info_mat)/npar)- .5*log(det(info_mat));
   fit <- list(obs=freq2xtabs(freq),fitted=freq2xtabs(prob), estimate=ps_new,
-              expd2=E, map=create_n_by_n_mod(PS_x, PS_y, PI, from_2x2 = TRUE), iter=it, 
+              expd2=E, map=create_n_by_n_mod(freq, PS_x, PS_y, PI, from_2x2 = TRUE), iter=it, 
               loglik=nll);#, aic = aic, bic = bic, icomp = icomp)
   output = grt(parameters, fit, 0, 0)
   output[['AIC']] = GOF(output,'AIC')
@@ -369,9 +384,9 @@ two_by_two_fit.grt <- function(freq, PS_x = FALSE, PS_y = FALSE, PI = 'none') {
 
 
 
-two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
+two_by_two_plot.grt <- function(obj, xlab, ylab, level = .5, 
+                                marginals=F, main = "", plot.mu = T) {
   bin_width= .05; # determines smoothness of marginal plots
-  ex = .25 # determines relative size of main plot and marginal plots
   fit_params = get_fit_params(obj)
   xlims = c(min(c(fit_params[[1]][1],fit_params[[2]][1],
                   fit_params[[3]][1],fit_params[[4]][1])-2.5),
@@ -386,25 +401,40 @@ two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
   y = seq(ylims[1],ylims[2],by=bin_width)
   xra = xlims[2] - xlims[1]
   yra = ylims[2] - ylims[1]
-  
-  # Plot Gaussian contours 
-  old_mar <- par()$mar;
-  par(fig=c(ex,1,ex,1), mai=rep(.05,4),pty="m",xaxt="n",yaxt="n")
-  # need to take into account optional marginal plots for x/y labs?
-  # currently assumes marginals will be plotted, so no x/y labs
-  plot(0,0,type="n",xlim=xlims,ylim=ylims,xlab="",ylab="",main="",axes=F)
+  if (is.null(xlab)) {
+    xlab <- "A";
+  }
+  if (is.null(ylab)) {
+    ylab <- "B";
+  }
+
+  if(marginals){
+    ex = .25
+    xlb = ""
+    ylb = ""
+    par(fig=c(ex,1,ex,1), mar=c(.05, .05, 1.25, 1.25),pty="m",xaxt="n",yaxt="n")
+  }else{
+    xlb = xlab
+    ylb = ylab
+    par(fig=c(0,1,0,1), mar=c(2.5,2.5,2.5,2.5),pty="m",xaxt="n",yaxt="n")
+  }
+  # Make plotting frame
+  plot(0,0,type="n",xlim=xlims,ylim=ylims,xlab=xlb,ylab=ylb,main=main,axes=F)
   box(which="plot",mai=rep(0,4))
   # Plot decision bounds
   abline(h=0);
   abline(v=0);
+  # Plot Gaussian contours 
   for (i in 1:4) {
-    cond = fit_params[[i]];
-    cov <- matrix(data=c(1, cond[3], cond[3], 1), nrow = 2);
+    cond = fit_params[[i]]
+    cov <- matrix(data=c(1, cond[3], cond[3], 1), nrow = 2)
     mu = cond[1:2]
-    par(new = TRUE);
+    par(new = TRUE)
     lines(ellipse(cov,centre=mu,level=level))
-    points(cond[1], cond[2], pch = '+');
-    title(xlab = 'x', ylab = 'y');
+    if(plot.mu){
+      points(cond[1], cond[2], pch = '+')
+    }
+    title(xlab = xlb, ylab = ylb)
   }
   
   # Add labels inset at 10% of the total x and y range
@@ -424,35 +454,35 @@ two_by_two_plot.grt <- function(obj, xlab1, ylab1, level = .5) {
   } else {
     newLabs = labs;
   }
-  text(xlims[1]+(xra * .1), ylims[1]+(yra * .1), newLabs[1])
-  text(xlims[1]+(xra * .1), ylims[2]-(yra * .1), newLabs[2])
-  text(xlims[2]-(xra * .1), ylims[1]+(yra * .1), newLabs[3])
-  text(xlims[2]-(xra * .1), ylims[2]-(yra * .1), newLabs[4])
-  
-  # compute marginals
-  margx = margy = list(aa=NULL,ab=NULL,ba=NULL, bb=NULL);
-  for (i in 1:4) {
-    cond = fit_params[[i]];
-    margx[[i]] = (1 / sqrt(2*pi)) * exp(-.5*((x-cond[1]))^2);
-    margy[[i]] = (1 / sqrt(2*pi)) * exp(-.5*((y-cond[2]))^2);
+  text(xlims[1]+(xra * .15), ylims[1]+(yra * .1), newLabs[1])
+  text(xlims[1]+(xra * .15), ylims[2]-(yra * .1), newLabs[2])
+  text(xlims[2]-(xra * .15), ylims[1]+(yra * .1), newLabs[3])
+  text(xlims[2]-(xra * .15), ylims[2]-(yra * .1), newLabs[4])
+
+  if(marginals){
+    # compute marginals
+    margx = margy = list(aa=NULL,ab=NULL,ba=NULL, bb=NULL);
+    for (i in 1:4) {
+      cond = fit_params[[i]];
+      margx[[i]] = (1 / sqrt(2*pi)) * exp(-.5*((x-cond[1]))^2);
+      margy[[i]] = (1 / sqrt(2*pi)) * exp(-.5*((y-cond[2]))^2);
+    }
+    
+    # Plot X marginals
+    par(fig=c(ex,1,0,ex), mar=c(.05, .05, 0.05, 1.25), pty='m', xaxt = 'n', yaxt = 'n', new=TRUE);
+    plot(x,margx$aa,type='l', lty=1, xlab = xlab, ylab = NULL);
+    lines(x,margx$ab,type='l',lty=2);
+    lines(x,margx$ba,type='l',lty=1);
+    lines(x,margx$bb,type='l',lty=2);
+    
+    # Plot Y marginals
+    par(fig=c(0,ex,ex,1), mar=c(.05, .05, 1.25, 0.05), pty='m', xaxt = 'n', yaxt = 'n', new=TRUE);
+    plot(margy$aa,y,type='l', lty=1, xlab = NULL, ylab = ylab);
+    lines(margy$ab,y, type='l',lty=1);
+    lines(margy$ba,y,type='l',lty=2);
+    lines(margy$bb,y,type='l',lty=2);
   }
   
-  # Plot X marginals
-  par(fig=c(ex,1,0,ex), mai = rep(.05,4), pty='m', xaxt = 'n', yaxt = 'n', new=TRUE);
-  plot(x,margx$aa,type='l', lty=1, xlab = xlab1, ylab = NULL);
-  lines(x,margx$ab,type='l',lty=2);
-  lines(x,margx$ba,type='l',lty=1);
-  lines(x,margx$bb,type='l',lty=2);
-  
-  # Plot Y marginals
-  par(fig=c(0,ex,ex,1), mai = rep(.05,4), pty='m', xaxt = 'n', yaxt = 'n', new=TRUE);
-  plot(margy$aa,y,type='l', lty=1, xlab = NULL, ylab = ylab1);
-  lines(margy$ab,y, type='l',lty=1);
-  lines(margy$ba,y,type='l',lty=2);
-  lines(margy$bb,y,type='l',lty=2);
-  
-  # Reset graphical par for later
-  par(mar = old_mar, fig = c(0,1,0,1));
 }
 
 isDefaultLabel <- function(label) {
@@ -477,9 +507,9 @@ isDefaultLabel <- function(label) {
 #' \item{'BIC'}{for Bayesian information criterion score}}
 #' @param observed optional, to provide a matrix of observed frequencies if no fit conducted.
 #' @examples 
-#' data(thomasA)
-#' fit1 <- fit.grt(thomasA)
-#' fit2 <- fit.grt(thomasA, PI = 'same_rho')
+#' data(thomas01a)
+#' fit1 <- fit.grt(thomas01a)
+#' fit2 <- fit.grt(thomas01a, PI = 'same_rho')
 #' 
 #' # Take the model with the lower AIC
 #' GOF(fit1, teststat = 'AIC')
@@ -555,7 +585,7 @@ GOF <- function(grtMod,teststat='X2',observed=NULL){
 #     1)  A three-way 'xtabs' table with the stimulis as the third index
 #     2)  A data frame contiaing the three indices with condition last,
 #         and frequencies as the variable 'x' (see 'form' if not this way)
-# pmap:     Parameter-mapping array (default: complete parameteriation)
+# pmap:     Parameter-mapping array (default: complete parameterization)
 # form:     A formula to convert a data frame (default x~.)
 # p0:       Initial point---calculated if not given
 # verbose:  Whether to print results (default FALSE)
@@ -574,6 +604,7 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
     stop('First argument must be data frame or contingency table')
   #  if (!(is.na(method) || (method == 0) || (method == 1)))
   #     stop('Method must be NA, 0, or 1')
+  xx = xx + 1 # protection against zeros, which causes problems with the algorithm
   dxx <- dim(xx)
   if (length(dxx) != 3) stop('Table must have dimension 3')
   KK <- dxx[3];
@@ -706,25 +737,45 @@ n_by_n_fit.grt <- function (xx, pmap=NA, formula=x~., p0=NA, method=NA,
   return(output)
 }
 
-create_n_by_n_mod <- function(PS_x, PS_y, PI, from_2x2 = FALSE) {
-  # Each row is distribution, cols are x_mean, x_std, y_mean, y_std, rho
-  map <- matrix(data = 0, nrow = 4, ncol= 5)
-  if (PS_x) { 
-    map[2,1:2] <- map[4,1:2] <- c(1,1); 
-  } else for (i in 1:4) map[i,1:2] <- c(i-1,i-1);
+create_n_by_n_mod <- function(freq=NULL, PS_x=F, PS_y=F, PI="none", from_2x2 = FALSE) {
+  # Each row is distribution, cols are y_mean, y_std, x_mean, x_std, rho
+  if(from_2x2 | length(freq)==16){
+    nst = 4
+  }else{
+    nst = dim(freq)[3]
+  }
+  # number of stimulus levels per dimension
+  # assumes equal numbers of levels on each dimension
+  nspd = sqrt(nst) 
+  map <- matrix(data = 0, nrow = nst, ncol= 5)
   if (PS_y) {
-    map[3,3:4] <- map[4,3:4] <- c(1,1);
-  } else for (i in 1:4) map[i,3:4] <- c(i-1,i-1);
+    for(si in seq(2,nspd)){
+      for(ri in seq(si,nst,nspd)){
+        map[ri,1:2] <- c(si-1,si-1)
+      }
+    }
+  } else for (i in 1:nst) map[i,1:2] <- c(i-1,i-1);
+  if (PS_x) {
+    ci = seq(nspd+1,nst,nspd)
+    for(si in seq(1,nspd-1)){
+      qi = ci[si]
+      for(ri in seq(qi,qi+nspd-1)){
+        map[ri,3:4] <- c(si,si)
+      }
+    }
+  } else for (i in 1:nst) map[i,3:4] <- c(i-1,i-1);
   if (PI == 'same_rho') {
-    for (i in 1:4) map[i,5] <- 1;
+    for (i in 1:nst) map[i,5] <- 1;
   } else if (PI == 'none') {
-    for (i in 1:4) map[i,5] <- i;
+    for (i in 1:nst) map[i,5] <- i;
   } 
   if (from_2x2) {
     map[,c(1,3)] = map[,c(1,3)] + 1;
     map[,c(2,4)] = c(0,0,0,0);
   }
-  return(map);
+  colnames(map) <- c("nu","tau","mu","sigma","rho")
+  #print(map)
+  return(map)
 }
 
 
